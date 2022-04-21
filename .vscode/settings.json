@@ -1,0 +1,8 @@
+{
+  "editor.formatOnSave": true,
+  "editor.fontFamily": "Monaco, Fira Code, Menlo, Droid Sans Mono, Source Code Pro, 'Courier New', monospace",
+  "java.configuration.updateBuildConfiguration": "disabled",
+  "editor.fontSize": 16,
+  "prettier.jsxSingleQuote": true,
+  "prettier.singleQuote": true
+}
