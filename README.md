@@ -82,7 +82,7 @@ hearable device에서 제공하는 제공하는 service ID (이외에도 ble 통
 #define UUID128_BUNNIT_PPG_DATA     79,ca,58,17,3c,0b,41,92,b9,da,58,0b,7a,92,09,e1
 ```
 
-### 3.2 Service ID 호출 예시
+## 3.2 Service ID 호출 예시
 
 기본적으로 베이스로 UUID128_BUNNIT_SERVICE를 메인으로 호출하고 sub로 호출하려는 service ID를 입력하면 된다.
 
@@ -94,7 +94,7 @@ hearable device에서 제공하는 제공하는 service ID (이외에도 ble 통
         )
 ```
 
-### 3.3 IMU Data
+## 3.3 IMU Data
 
 ```
 181,255,237,255,15,64,0,0,2,0,254,255,0,0,0,0,0,128,0,0,90,28,198,96
@@ -124,11 +124,11 @@ typedef PACKED(struct {
 }) imu_raw_mag_t;
 ```
 
-### 3.4 PPG Data
+## 3.4 PPG Data
 
 IMU Data notification On 상태에서 호출해야한다. Off 상태에서 호출하면 일정시간이 지난 후 sleep 모드에 들어가면서 데이터를 송출하지 않음.
 
-<PPG Data 구조>
+### 3.4.1 PPG Data 구조
 
 ```
 typedef struct ATTRIBUTE_STRUCT_PACKED {
@@ -172,7 +172,7 @@ typedef struct ATTRIBUTE_STRUCT_PACKED {
 } output_fifo_fmt_algo_normal_t;
 ```
 
-<PPG data 표현식> (펌웨어 참고 코드)
+### 3.4.2 PPG data 표현식 - (펌웨어 참고 코드)
 
 ```
 #define PRINT_MEAS_FMT_ALGO_NORMAL(X)
