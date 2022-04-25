@@ -40,7 +40,7 @@ device 장치 연결에 사용하는 버튼으로 bluetooth ble 신호 중에 'H
 
 장치와 연결후 Tracking Start하면 데이터 tracking을 시작한다. App에서 device로 Service ID를 이용해 notification 요청 신호를 전송하면 device에서는 해당 Service ID에 대한 정보(IMU Data)를 지속적으로 송출한다. End 버튼을 누르면 notification 종료 신호를 전달해서 device는 정보 송출을 중단한다. 이때까지 누적된 데이터는 안드로이드 기준 Android/data/com.hearableapp/files 경로에 파일이 저장된다. (파일명 2021-06-13_11-55-21.txt와 같은 포맷으로 생성됨)
 
-# 2.3 Start & End
+## 2.3 Start & End
 
 Start, End 버튼은 Tracking 중간에 운동 시작 종료 tag를 위해서 사용한다. start버튼 오른쪽에 위치한 운동 선택버튼을 통해서 운동 종류를 선택하고 end버튼 오른쪽에 위치한 횟수를 이용해서 운동 종료 tag를 남긴다. 아래 예시와 같이 [Start] [End]는 Tracking 시작 종료 여부이고, [Workout] 으로 시작하는 Tag가 Start, End버튼을 이용해서 운동 시작 종료를 구분하는 Tag를 넣는다.
 
@@ -94,7 +94,35 @@ hearable device에서 제공하는 제공하는 service ID (이외에도 ble 통
         )
 ```
 
-## 3.3 IMU Data
+## 3.3 Bluetooth® Document
+
+bluetooth 통신 규약으로 정해진 UUID는 아래 문서에 정의되어있다. 예를들어서 배터리 레벨 같은 경우 커스텀 UUID로 별도 정의하는 것이 아니라 미리 정의된 규약의 UUID를 이용해서 device에서 정보를 읽어온다.
+
+Link : [Bluetooth® Document](https://specificationrefs.bluetooth.com/assigned-values/16-bit%20UUID%20Numbers%20Document.pdf)
+
+App에서 device Battery 상태를 읽어오고 싶은경우 위의 문서에서 Battery를 검색해서 Service ID와 Character ID를 찾는다.
+
+```
+GATT Service 0x180F Battery
+GATT Characteristic and Object Type 0x2A19 Battery Level
+```
+
+위와 같이 ID를 찾았다면 아래와 같이 코드로 구현해서 device Battery Level를 읽어오는 코드를 구현할 수 있다.
+
+```
+    BleManager.read(peripheralId, '180F', '2A19')
+        .then(readData => {
+        // Success code
+        setBatteryLevel(readData);
+        })
+        .catch(error => {
+        // Failure code
+        console.log(error);
+        setBatteryLevel(-1);
+    });
+```
+
+## 3.4 IMU Data
 
 ```
 181,255,237,255,15,64,0,0,2,0,254,255,0,0,0,0,0,128,0,0,90,28,198,96
@@ -124,11 +152,11 @@ typedef PACKED(struct {
 }) imu_raw_mag_t;
 ```
 
-## 3.4 PPG Data
+## 3.5 PPG Data
 
 IMU Data notification On 상태에서 호출해야한다. Off 상태에서 호출하면 일정시간이 지난 후 sleep 모드에 들어가면서 데이터를 송출하지 않음.
 
-### 3.4.1 PPG Data 구조
+### 3.5.1 PPG Data 구조
 
 ```
 typedef struct ATTRIBUTE_STRUCT_PACKED {
@@ -172,7 +200,7 @@ typedef struct ATTRIBUTE_STRUCT_PACKED {
 } output_fifo_fmt_algo_normal_t;
 ```
 
-### 3.4.2 PPG data 표현식 - (펌웨어 참고 코드)
+### 3.5.2 PPG data 표현식 - (펌웨어 참고 코드)
 
 ```
 #define PRINT_MEAS_FMT_ALGO_NORMAL(X)
