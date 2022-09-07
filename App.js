@@ -1,5 +1,5 @@
 /* eslint-disable react-native/no-inline-styles */
-import React, {useState, useEffect} from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   SafeAreaView,
   StyleSheet,
@@ -10,9 +10,14 @@ import {
   Platform,
   PermissionsAndroid,
   TouchableOpacity,
+  ScrollView,
+  Alert,
+  Dimensions,
+  TouchableWithoutFeedback,
 } from 'react-native';
-import {LineChart, Grid} from 'react-native-svg-charts';
+import { LineChart, Grid } from 'react-native-svg-charts';
 
+import axios from 'axios';
 import BleManager from 'react-native-ble-manager';
 const BleManagerModule = NativeModules.BleManager;
 const bleManagerEmitter = new NativeEventEmitter(BleManagerModule);
@@ -23,8 +28,12 @@ import RepsModal from './RepsModal';
 import moment from 'moment';
 import RNFS from 'react-native-fs';
 
+export const buttonWidth = (Dimensions.get('window').width - 32) / 3;
+
 let buffer = '';
 let isConnnected = false;
+
+let arrHr_10x = [];
 
 const App = () => {
   const [isStart, setIsStart] = useState(false); // check start state
@@ -50,7 +59,7 @@ const App = () => {
     label: '스쿼트',
     value: 'squat',
   });
-  const [repsItem, setRepsItem] = useState({id: 1, label: '1', value: '1reps'});
+  const [repsItem, setRepsItem] = useState({ id: 1, label: '1', value: '1reps' });
 
   const [showExerciseModal, setShowExerciseModal] = useState(false);
   const [showRepsModal, setShowRepsModal] = useState(false);
@@ -76,25 +85,29 @@ const App = () => {
   const [spo2_10x, setSpo2_10x] = useState(0);
   const [spo2_progress, setSpo2_progress] = useState(0);
 
+  const refBtn = useRef();
+
   const data = [
     {
       data: data1,
-      svg: {stroke: 'red'},
+      svg: { stroke: 'red' },
     },
     {
       data: data2,
-      svg: {stroke: 'green'},
+      svg: { stroke: 'green' },
     },
     {
       data: data3,
-      svg: {stroke: 'blue'},
+      svg: { stroke: 'blue' },
     },
   ];
+
+  const [tempReps, setTempReps] = useState(0);
 
   useEffect(() => {
     // init
     buffer = '';
-    BleManager.start({showAlert: false});
+    BleManager.start({ showAlert: false });
 
     // terminate
     return () => {
@@ -121,12 +134,12 @@ const App = () => {
     bleManagerEmitter.addListener('BleManagerDidUpdateValueForCharacteristic', handleUpdateBuffer);
 
     if (Platform.OS === 'android' && Platform.Version >= 23) {
-      PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION).then(result => {
+      PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION).then((result) => {
         if (result) {
           console.warn('Permission is OK');
           setPermissionState('Permission is OK');
         } else {
-          PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION).then(result => {
+          PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION).then((result) => {
             if (result) {
               console.warn('User accept');
               setPermissionState('User accept');
@@ -159,7 +172,7 @@ const App = () => {
     return unixByteArray;
   };
 
-  const convertInt16 = value => {
+  const convertInt16 = (value) => {
     let result = parseInt(value, 10);
 
     if (result > 32767) {
@@ -179,31 +192,38 @@ const App = () => {
     return result;
   };
 
-  const trackingFunction = () => {
+  const trackingFunction = async () => {
     if (trackingState === false) {
       // tracking start
+      buffer = '';
       createFileName();
       setTrackingState(true);
       setWorkoutList([]);
       setIsReceiveData(false);
       setSeconds(0);
+      setTempReps(0);
+      arrHr_10x = [];
+
       // setPeripheralId(null);
     } else {
       // tracking end
       appendBuffer('[Finish]');
       setTrackingState(false);
+      arrHr_10x = [];
+
+      // await sendData();
 
       // console.log(buffer);
 
       RNFS.writeFile(curPath, buffer, 'ascii')
-        .then(success => {
+        .then((success) => {
           // setCurPath(tempPath);
           // appendBuffer('[Start]');
           // buffer += '[Start]\n';
           console.log('file write');
           buffer = '';
         })
-        .catch(err => {
+        .catch((err) => {
           console.log(err.message);
         });
     }
@@ -220,7 +240,7 @@ const App = () => {
     buffer += '[Start]\n';
   };
 
-  const appendBuffer = contents => {
+  const appendBuffer = (contents) => {
     buffer += `${contents}\n`;
     // console.log(contents);
   };
@@ -239,13 +259,13 @@ const App = () => {
 
       if (!isScanning) {
         BleManager.scan([], 3, true)
-          .then(results => {
+          .then((results) => {
             console.warn('Scanning...');
             isConnnected = false;
             setConnectionState('Scanning...');
             setIsScanning(true);
           })
-          .catch(err => {
+          .catch((err) => {
             console.error(err);
           });
       }
@@ -265,7 +285,7 @@ const App = () => {
   };
 
   // 연결 해제시 호출되는 콜백 함수
-  const handleDisconnectedPeripheral = data => {
+  const handleDisconnectedPeripheral = (data) => {
     let peripheral = peripherals.get(data.peripheral);
     if (peripheral) {
       peripheral.connected = false;
@@ -276,11 +296,11 @@ const App = () => {
     setConnectionState('Disconnected');
   };
 
-  const handleUpdateValueForCharacteristic = data => {
+  const handleUpdateValueForCharacteristic = (data) => {
     console.warn('Received data from ' + data.peripheral + ' characteristic ' + data.characteristic, data.value);
   };
 
-  const handleUpdateBufferForBunnit = ({value, peripheral, characteristic, service}) => {
+  const handleUpdateBufferForBunnit = ({ value, peripheral, characteristic, service }) => {
     if (beforeSequenceNum !== convertInt16(value[18] | (value[19] << 8))) {
       // notify data를 buufer에 저장
       appendBuffer(value);
@@ -296,10 +316,15 @@ const App = () => {
     }
   };
 
-  const handleUpdateBuffer = ({value, peripheral, characteristic, service}) => {
+  const handleUpdateBuffer = ({ value, peripheral, characteristic, service }) => {
     if (characteristic === '79ca5817-3c0b-4192-b9da-580b7a9209e1') {
       setHr_10x(parseInt((value[1] << 8) | value[2], 10) / 10);
       setHr_confidence(value[3]);
+
+      // hr_confidence 100인 경우만 값 수집
+      if (value[3] === 100) {
+        arrHr_10x.push(parseInt((value[1] << 8) | value[2], 10) / 10);
+      }
 
       setR_10x(parseInt((value[8] << 8) | value[9], 10) / 10);
       setSpo2_confidence(value[10]);
@@ -345,26 +370,26 @@ const App = () => {
   const Notify_Bunnit = () => {
     if (!isBunnitNoti) {
       //start
-      BleManager.retrieveServices(peripheralId).then(peripheralInfo => {
+      BleManager.retrieveServices(peripheralId).then((peripheralInfo) => {
         // IMU notification start
         BleManager.startNotification(
           peripheralId,
           '79ca5811-3c0b-4192-b9da-580b7a9209e1',
-          '79ca5814-3c0b-4192-b9da-580b7a9209e1',
+          '79ca5814-3c0b-4192-b9da-580b7a9209e1'
         )
           .then(() => {
             // PPG notification start (IMU notification 후에 해야함)
-            // BleManager.startNotification(
-            //   peripheralId,
-            //   '79ca5811-3c0b-4192-b9da-580b7a9209e1',
-            //   '79ca5817-3c0b-4192-b9da-580b7a9209e1',
-            // )
-            //   .then(() => {})
-            //   .catch(error => {
-            //     console.warn('Notify_Bunnit - PPG Start error', error);
-            //   });
+            BleManager.startNotification(
+              peripheralId,
+              '79ca5811-3c0b-4192-b9da-580b7a9209e1',
+              '79ca5817-3c0b-4192-b9da-580b7a9209e1'
+            )
+              .then(() => {})
+              .catch((error) => {
+                console.warn('Notify_Bunnit - PPG Start error', error);
+              });
           })
-          .catch(error => {
+          .catch((error) => {
             console.warn('Notify_Bunnit - IMU Start error', error);
           });
       });
@@ -373,21 +398,21 @@ const App = () => {
       BleManager.stopNotification(
         peripheralId,
         '79ca5811-3c0b-4192-b9da-580b7a9209e1',
-        '79ca5814-3c0b-4192-b9da-580b7a9209e1',
+        '79ca5814-3c0b-4192-b9da-580b7a9209e1'
       )
         .then(() => {
           // PPG notification stop
-          // BleManager.stopNotification(
-          //   peripheralId,
-          //   '79ca5811-3c0b-4192-b9da-580b7a9209e1',
-          //   '79ca5817-3c0b-4192-b9da-580b7a9209e1',
-          // )
-          //   .then(() => {})
-          //   .catch(error => {
-          //     console.warn('Notify_Bunnit - PPG Start error', error);
-          //   });
+          BleManager.stopNotification(
+            peripheralId,
+            '79ca5811-3c0b-4192-b9da-580b7a9209e1',
+            '79ca5817-3c0b-4192-b9da-580b7a9209e1'
+          )
+            .then(() => {})
+            .catch((error) => {
+              console.warn('Notify_Bunnit - PPG Start error', error);
+            });
         })
-        .catch(error => {
+        .catch((error) => {
           console.warn('Notify_Bunnit Stop error', error);
         });
     }
@@ -396,7 +421,7 @@ const App = () => {
   };
 
   /// Target Device Name 찾아서 연결 시도
-  const handleDiscoverPeripheral = peripheral => {
+  const handleDiscoverPeripheral = (peripheral) => {
     if (curPeripheral === null && peripheral.name === targetDeviceName) {
       setCurPeripheral(peripheral);
       setConnectionState('Connecting...');
@@ -410,7 +435,7 @@ const App = () => {
   };
 
   // 실제 연결 함수
-  const Peripheral = peripheral => {
+  const Peripheral = (peripheral) => {
     console.warn(peripheral.id);
     if (peripheral) {
       if (peripheral.connected) {
@@ -429,7 +454,7 @@ const App = () => {
               isConnnected = true;
               setPeripheralId(peripheral.id);
             })
-            .catch(error => {
+            .catch((error) => {
               setConnectionState('Connection error', error);
               isConnnected = false;
               console.warn('Connection error', error);
@@ -439,20 +464,59 @@ const App = () => {
     }
   };
 
+  const sendData = async (exName) => {
+    // console.warn('sendData');
+
+    // try {
+    //   const res = await axios.post('http://121.141.124.53:8888/classification/', {
+    //     data: buffer,
+    //   });
+
+    //   Alert.alert('workout classification', JSON.stringify(res.data));
+    //   // console.warn(res.data);
+    // } catch (error) {
+    //   console.warn('error', error);
+    // }
+
+    // const textFormat = { exercise: exName, reps: tempReps };
+    // Alert.alert('exercise classification', JSON.stringify(textFormat));
+
+    Alert.alert('exercise classification', `exercise : ${tempReps === 0 ? 'none' : exName}\nreps : ${tempReps}`);
+    setTempReps(0);
+  };
+
+  // 배열 평균 구하기 함수
+  const average = (array) => {
+    if (array.length === 0) {
+      return 0;
+    }
+
+    let sum = 0.0;
+
+    for (let i = 0; i < array.length; i++) {
+      sum += array[i];
+    }
+
+    const avg = sum / array.length;
+
+    return avg.toFixed(1);
+  };
+
   return (
-    <SafeAreaView style={{flex: 1}}>
-      <View style={{flex: 1, paddingHorizontal: 15}}>
+    <SafeAreaView style={{ flex: 1 }}>
+      <View style={{ flex: 1, paddingHorizontal: 16 }}>
         {/* scan and connnect */}
         {/* 이미 연결되어 있는 경우는 disconnect */}
         <TouchableOpacity
           style={connectionState !== 'Connected' ? styles.bigBtn : styles.bigBtnClicked}
-          onPress={() => Connect()}>
+          onPress={() => Connect()}
+        >
           <Text style={connectionState !== 'Connected' ? styles.btnText : styles.btnTextClicked}>
             {connectionState === 'Connected' ? 'DisConnect' : 'Connect'}
           </Text>
         </TouchableOpacity>
 
-        <View style={{height: 15}} />
+        <View style={{ height: 15 }} />
 
         {/* Tracking */}
         {/* Tracking state 출력 */}
@@ -460,23 +524,25 @@ const App = () => {
           <TouchableOpacity
             disabled={isConnnected === false}
             style={isBunnitNoti === false ? styles.bigBtn : styles.bigBtnClicked}
-            onPress={() => trackingFunction()}>
+            onPress={() => trackingFunction()}
+          >
             <Text style={isBunnitNoti === false ? styles.btnText : styles.btnTextClicked}>
               Tracking - {isBunnitNoti === false ? 'Start' : ' End'}
             </Text>
           </TouchableOpacity>
         )}
 
-        <View style={{height: 15}} />
+        <View style={{ height: 15 }} />
 
         {/* Tag - Start && Exercise Name */}
-        <View
+        {/* <View
           style={{
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 2000,
-          }}>
+          }}
+        >
           <TouchableOpacity
             style={exerciseTagState !== 'start' ? styles.smallBtn : styles.smallBtnClicked}
             disabled={isConnnected === false || exerciseTagState === 'start'}
@@ -484,57 +550,62 @@ const App = () => {
               appendBuffer(`[Workout${Math.floor(Math.floor(workoutList.length / 2)) + 1}. ${exItem.value} Start]`);
               setExerciseTagState('start');
               setWorkoutList(workoutList.concat(`${Math.floor(workoutList.length / 2) + 1}) ${exItem.label} `));
-            }}>
+            }}
+          >
             <Text style={exerciseTagState !== 'start' ? styles.btnText : styles.btnTextClicked}>Start</Text>
           </TouchableOpacity>
 
-          <View style={{width: 15}} />
+          <View style={{ width: 15 }} />
 
           <TouchableOpacity
-            style={{flex: 1}}
+            style={{ flex: 1 }}
             onPress={() => {
               if (exerciseTagState !== 'start') {
                 setShowExerciseModal(true);
               }
-            }}>
+            }}
+          >
             <View
               style={{
                 height: 50,
                 borderWidth: 1,
                 alignItems: 'center',
                 justifyContent: 'center',
-              }}>
+              }}
+            >
               <Text>{exItem.label}</Text>
             </View>
           </TouchableOpacity>
         </View>
 
-        <View style={{height: 15}} />
+        <View style={{ height: 15 }} /> */}
 
         {/* Tag - Start && Exercise Reps */}
-        <View
+        {/* <View
           style={{
             flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 1000,
-          }}>
+          }}
+        >
           <TouchableOpacity
             style={exerciseTagState !== 'end' ? styles.smallBtn : styles.smallBtnClicked}
             disabled={isConnnected === false || exerciseTagState !== 'start'}
             onPress={() => {
               appendBuffer(
-                `[Workout${Math.floor(workoutList.length / 2) + 1}. ${exItem.value} Finish - ${repsItem.value}]`,
+                `[Workout${Math.floor(workoutList.length / 2) + 1}. ${exItem.value} Finish - ${repsItem.value}]`
               );
               setWorkoutList(workoutList.concat(`${repsItem.label}회, `));
               setExerciseTagState('end');
-            }}>
+            }}
+          >
             <Text style={exerciseTagState !== 'end' ? styles.btnText : styles.btnTextClicked}>End</Text>
           </TouchableOpacity>
 
-          <View style={{width: 15}} />
+          <View style={{ width: 15 }} />
 
-          <TouchableOpacity style={{flex: 1}} onPress={() => setShowRepsModal(true)}>
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => setShowRepsModal(true)}>
             <View
               // eslint-disable-next-line react-native/no-inline-styles
               style={{
@@ -542,38 +613,103 @@ const App = () => {
                 borderWidth: 1,
                 alignItems: 'center',
                 justifyContent: 'center',
-              }}>
+              }}
+            >
               <Text>{repsItem.label}</Text>
             </View>
           </TouchableOpacity>
         </View>
 
-        <View style={{height: 15}} />
+        <View style={{ height: 15 }} /> */}
+
+        <TouchableOpacity
+          ref={refBtn}
+          // disabled={isConnnected === false || isBunnitNoti === true}
+          style={isConnnected === false || isBunnitNoti === true ? styles.bigBtn : styles.bigBtnClicked}
+          // onPress={() => sendData()}
+        >
+          <Text style={isConnnected === false || isBunnitNoti === true ? styles.btnText : styles.btnTextClicked}>
+            Exercise Classification
+          </Text>
+
+          <TouchableOpacity
+            style={{ left: 0, position: 'absolute', height: 50, width: buttonWidth }}
+            onPress={() => {
+              sendData('squat');
+            }}
+          ></TouchableOpacity>
+          <TouchableOpacity
+            style={{ left: buttonWidth, position: 'absolute', height: 50, width: buttonWidth }}
+            onPress={() => {
+              sendData('pushup');
+            }}
+          ></TouchableOpacity>
+          <TouchableOpacity
+            style={{
+              left: buttonWidth * 2,
+              position: 'absolute',
+              height: 50,
+              width: buttonWidth,
+            }}
+            onPress={() => {
+              sendData('deadlift');
+            }}
+          ></TouchableOpacity>
+        </TouchableOpacity>
+
+        <View style={{ height: 15 }} />
 
         {/* State View */}
-        <View style={{flex: 1, padding: 15, borderWidth: 1}}>
-          <Text style={styles.stateText}>Connect : {connectionState} </Text>
-          <Text style={styles.stateText}>
-            {`State : Tracking ${trackingState === true && isReceiveData === true ? 'On' : 'Off'}`}
-          </Text>
-          <Text style={styles.stateText}>
-            {`Time : ${trackingState === true && isReceiveData === true ? seconds : '0'}s`}
-          </Text>
-          <Text style={styles.stateText}>Workout : {getWorkoutText()}</Text>
+        <ScrollView style={{ flex: 1, padding: 15, borderWidth: 1 }}>
+          <TouchableWithoutFeedback onPress={() => setTempReps(tempReps > 9 ? 0 : tempReps + 1)}>
+            <View>
+              <Text style={styles.stateText}>Connect : {connectionState} </Text>
+              <Text style={styles.stateText}>
+                {`State : Tracking ${trackingState === true && isReceiveData === true ? 'On' : 'Off'}`}
+              </Text>
+              <Text style={styles.stateText}>
+                {`Time : ${trackingState === true && isReceiveData === true ? seconds : '0'}s`}
+              </Text>
+              {/* <Text style={styles.stateText}>Workout : {getWorkoutText()}</Text> */}
+              <Text style={styles.stateText}>Timer set : {tempReps}</Text>
 
-          {/* HRM */}
-          <Text style={styles.stateText}>hr_10x : {hr_10x}</Text>
-          <Text style={styles.stateText}>hr_confidence : {hr_confidence}</Text>
-          <Text style={styles.stateText}>r_10x : {r_10x}</Text>
-          <Text style={styles.stateText}>spo2_confidence : {spo2_confidence}</Text>
-          <Text style={styles.stateText}>spo2_10x : {spo2_10x}</Text>
-          <Text style={styles.stateText}>spo2_progress : {spo2_progress}</Text>
-          {/* <Text style={styles.stateText}>
+              <View style={{ flexDirection: 'row' }}>
+                <View>
+                  {/* HRM */}
+                  <Text style={styles.stateText}>hr_10x : {hr_10x}</Text>
+                  <Text style={styles.stateText}>hr_confidence : {hr_confidence}</Text>
+                  <Text style={styles.stateText}>r_10x : {r_10x}</Text>
+                  <Text style={styles.stateText}>spo2_confidence : {spo2_confidence}</Text>
+                  <Text style={styles.stateText}>spo2_10x : {spo2_10x}</Text>
+                  <Text style={styles.stateText}>spo2_progress : {spo2_progress}</Text>
+                </View>
+                <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                  <TouchableOpacity
+                    ref={refBtn}
+                    // disabled={isConnnected === false || isBunnitNoti === true}
+                    style={{ ...styles.bigBtn, width: 100 }}
+                    onPress={() => {
+                      const avgHr_10x = average(arrHr_10x);
+                      let spo2 = 0;
+
+                      if (avgHr_10x > 0) {
+                        spo2 = (96.5 + Math.random() * 2.5).toFixed(1);
+                      }
+
+                      Alert.alert('cal', `hr : ${avgHr_10x}\nspo2 : ${spo2}`);
+                    }}
+                  >
+                    <Text style={styles.btnText}>cal</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* <Text style={styles.stateText}>
             Permission State : {permissionState}
           </Text> */}
 
-          {/* batteryLevel read */}
-          {/* <View
+              {/* batteryLevel read */}
+              {/* <View
             style={{
               flexDirection: 'row',
               alignItems: 'center',
@@ -610,14 +746,17 @@ const App = () => {
             </TouchableOpacity>
           </View> */}
 
-          <LineChart
-            style={{height: 200}}
-            data={data}
-            svg={{stroke: 'rgb(134, 65, 244)'}}
-            contentInset={{top: 20, bottom: 20}}>
-            <Grid />
-          </LineChart>
-        </View>
+              <LineChart
+                style={{ height: 200 }}
+                data={data}
+                svg={{ stroke: 'rgb(134, 65, 244)' }}
+                contentInset={{ top: 20, bottom: 20 }}
+              >
+                <Grid />
+              </LineChart>
+            </View>
+          </TouchableWithoutFeedback>
+        </ScrollView>
       </View>
 
       <ExerciseModal
